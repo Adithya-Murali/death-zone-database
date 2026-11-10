@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The official astral-sh/setup-uv action works too; the installer keeps
+      # this workflow from pinning an action version alongside the uv version.
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Install the project
+        run: uv sync --all-groups --locked
+
+      - name: Lint
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+
+      # Guards the pip install path: a requirements.txt that has drifted from
+      # uv.lock advertises a version set nobody tested.
+      - name: requirements.txt is current
+        run: ./scripts/check-requirements.sh
+
+      - name: Test
+        run: uv run pytest

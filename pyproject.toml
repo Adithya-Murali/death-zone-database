@@ -1,0 +1,59 @@
+[project]
+name = "death-zone-database"
+version = "0.1.0"
+description = "Expedition analytics for the Nepal Himalaya, built from the Himalayan Database"
+readme = "README.md"
+requires-python = ">=3.12"
+
+# PEP 621. pip reads this table natively, so `pip install -e .` works
+# without uv being involved. Keep it that way: no [tool.uv.sources].
+dependencies = [
+    "dbfread>=2.0.7",
+    "duckdb>=1.1",
+    "pandas>=2.2",
+    "pyarrow>=17",
+    "typer>=0.12",
+]
+
+[project.optional-dependencies]
+dashboard = [
+    "streamlit>=1.38",
+]
+
+# Deliberately NOT declared yet: the termination-note clustering needs
+# sentence-transformers, which drags in torch and ~43 nvidia CUDA packages. A uv
+# lockfile is a universal resolution, so merely declaring the extra puts all of
+# them in uv.lock even though none install on macOS. Add it when that milestone
+# starts, and prefer a CPU-only torch build.
+
+[project.scripts]
+dzdb = "death_zone.cli:app"
+
+# PEP 735. Standard, but newer than [project.optional-dependencies],
+# so some tools still need a recent version to see it.
+[dependency-groups]
+dev = [
+    "pre-commit>=3.8",
+    "pytest>=8.3",
+    "ruff>=0.6",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/death_zone"]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+# archive/ is parked code, not part of the project. See archive/README.md.
+extend-exclude = ["archive"]
+
+[tool.ruff.lint]
+select = ["B", "E", "F", "I", "SIM", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

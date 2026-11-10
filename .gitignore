@@ -1,0 +1,73 @@
+### IntelliJ IDEA ###
+.idea/
+CLAUDE.md
+out/
+!**/src/main/**/out/
+!**/src/test/**/out/
+.kotlin
+
+### Eclipse ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+bin/
+!**/src/main/**/bin/
+!**/src/test/**/bin/
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+
+### VS Code ###
+.vscode/
+
+### Mac OS ###
+.DS_Store
+
+### Python ###
+__pycache__/
+# Virtualenvs. .venv is what uv creates; myenv/ and venv/ are hand-made ones.
+# A site-packages tree is 48 MB of compiled binaries and belongs to the machine
+# that built it, never to the repo.
+myenv/
+env/
+*.py[cod]
+*.egg-info/
+build/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+### Data ###
+# The upstream archive is free to download but not ours to redistribute, and a
+# 43 MB binary blob does not belong in git. `dzdb download` fetches it.
+data/*
+!data/.gitkeep
+*.duckdb
+*.duckdb.wal
+*.parquet
+# ...except the gold exports. The dashboard reads these and cannot rebuild them
+# from a deployed checkout -- the 43 MB upstream archive is not redistributed
+# here -- and all four come to 868 KB.
+!data/gold/
+data/gold/*
+!data/gold/*.parquet
+
+### Scratch ###
+# Throwaway data root for test runs: DZDB_DATA_DIR=.scratch-data dzdb extract
+.scratch-data/
+
+### Archive ###
+# Code cut out of the live tree and parked until it is either rewritten or
+# deliberately brought back. See archive/README.md. Ignored so it never reaches
+# history: once the repo exists, anything worth keeping moves back into src/.
+archive/

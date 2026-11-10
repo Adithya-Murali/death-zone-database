@@ -1,0 +1,38 @@
+# Install with: make hooks
+#
+# The export hook rewrites requirements.txt whenever pyproject.toml or uv.lock
+# changes. pre-commit fails the commit when a hook modifies a file, so a stale
+# export cannot be committed -- re-stage and commit again.
+repos:
+  - repo: https://github.com/astral-sh/uv-pre-commit
+    rev: 0.13.5
+    hooks:
+      - id: uv-lock
+
+  - repo: local
+    hooks:
+      - id: uv-export-requirements
+        name: re-export requirements.txt from uv.lock
+        entry: scripts/export-requirements.sh
+        language: system
+        files: ^(pyproject\.toml|uv\.lock)$
+        pass_filenames: false
+
+      - id: requirements-fresh
+        name: requirements.txt matches uv.lock
+        entry: scripts/check-requirements.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: ruff-check
+        name: ruff check
+        entry: uv run ruff check --fix
+        language: system
+        types: [python]
+
+      - id: ruff-format
+        name: ruff format
+        entry: uv run ruff format
+        language: system
+        types: [python]
