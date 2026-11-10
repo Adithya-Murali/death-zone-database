@@ -11,9 +11,9 @@ decade buckets and the aggregates are fixed at decade grain. gold_climb is
 95,000 rows; DuckDB regroups it in milliseconds. gold_worker_risk and friends
 remain the canonical definitions for anyone querying by hand.
 
-Every rate is computed from summed numerators and denominators, never as an
-average of per-group rates: averaging the rates of Everest and a peak with
-three climbers weights them equally.
+Rates are percentages of the group's own climber count, computed from summed
+numerators and denominators, never as an average of per-group rates: averaging
+the rates of Everest and a peak with three climbers weights them equally.
 """
 
 from __future__ import annotations
@@ -118,7 +118,7 @@ def headline(years: tuple[int, int], seasons: list[str], peaks: list[str]) -> pd
                    sum(summited::INT) AS summits,
                    100.0 * sum(summited::INT) / count(*) AS pct_summited,
                    sum(died::INT) AS deaths,
-                   1000.0 * sum(died::INT) / count(*) AS deaths_per_1000
+                   100.0 * sum(died::INT) / count(*) AS pct_died
             FROM read_parquet('{gold_path(CLIMB)}')
             WHERE {where} GROUP BY 1""",
         params,
@@ -134,7 +134,7 @@ def by_peak_season(years: tuple[int, int], seasons: list[str], peaks: list[str])
                    count(*) AS climbers,
                    sum(summited::INT) AS summits,
                    sum(died::INT) AS deaths,
-                   1000.0 * sum(died::INT) / count(*) AS deaths_per_1000,
+                   100.0 * sum(died::INT) / count(*) AS pct_died,
                    100.0 * sum(summited::INT) / count(*) AS pct_summited
             FROM read_parquet('{gold_path(CLIMB)}')
             WHERE {where} AND worker_class = 'Member'
@@ -200,7 +200,7 @@ def series_over_time(
                  )
             SELECT series, period, climbers, summits, deaths,
                    100.0 * summits / climbers AS pct_summited,
-                   1000.0 * deaths / climbers AS deaths_per_1000,
+                   100.0 * deaths / climbers AS pct_died,
                    series = '{ALL_PEAKS}' AS is_pooled
             FROM stacked
             ORDER BY series, period""",
@@ -221,7 +221,7 @@ def worker_over_time(
                    sum(summited::INT) AS summits,
                    100.0 * sum(summited::INT) / count(*) AS pct_summited,
                    sum(died::INT) AS deaths,
-                   1000.0 * sum(died::INT) / count(*) AS deaths_per_1000
+                   100.0 * sum(died::INT) / count(*) AS pct_died
             FROM read_parquet('{gold_path(CLIMB)}')
             WHERE {where} GROUP BY 1, 2 ORDER BY 1, 2""",
         params,
@@ -268,7 +268,7 @@ def support_outcomes(
                    sum(summited::INT) AS summits,
                    100.0 * sum(summited::INT) / count(*) AS pct_summited,
                    sum(died::INT) AS deaths,
-                   1000.0 * sum(died::INT) / count(*) AS deaths_per_1000
+                   100.0 * sum(died::INT) / count(*) AS pct_died
             FROM read_parquet('{gold_path(CLIMB)}')
             WHERE {where} AND NOT is_hired AND support_level <> 'Not recorded'
             GROUP BY 1, 2 ORDER BY 1, 2""",
@@ -366,7 +366,7 @@ def oxygen_over_time(
                    sum(summited::INT) AS summits,
                    100.0 * sum(summited::INT) / count(*) AS pct_summited,
                    sum(died::INT) AS deaths,
-                   1000.0 * sum(died::INT) / count(*) AS deaths_per_1000
+                   100.0 * sum(died::INT) / count(*) AS pct_died
             FROM read_parquet('{gold_path(CLIMB)}')
             WHERE {where} AND NOT is_hired
             GROUP BY 1, 2 ORDER BY 1, 2""",
@@ -387,7 +387,7 @@ def oxygen_by_worker(years: tuple[int, int], seasons: list[str], peaks: list[str
                    sum(summited::INT) AS summits,
                    100.0 * sum(summited::INT) / count(*) AS pct_summited,
                    sum(died::INT) AS deaths,
-                   1000.0 * sum(died::INT) / count(*) AS deaths_per_1000
+                   100.0 * sum(died::INT) / count(*) AS pct_died
             FROM read_parquet('{gold_path(CLIMB)}')
             WHERE {where} GROUP BY 1, 2""",
         params,

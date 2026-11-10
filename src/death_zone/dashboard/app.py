@@ -6,7 +6,7 @@ Reads data/gold/*.parquet, so `dzdb gold` must have run.
 
 Chart conventions, applied everywhere:
 
-- Deaths are a RATE per 1,000 climber-records by default. Peak populations
+- Deaths are a PERCENTAGE of the group's own climber count. Peak populations
   differ by three orders of magnitude, and raw counts make Everest -- with
   26,000 records -- look safer than a peak with four.
 - An 'All peaks' series is the POOLED total, not the mean of the peak lines.
@@ -116,16 +116,12 @@ def _sized(chart: alt.LayerChart, title: str) -> alt.LayerChart:
     chart sizes the plot area to that width and the title, axis labels and
     legend then overflow and get cut. Explicit padding reserves the room.
     """
-    return (
-        chart.properties(
-            title=alt.TitleParams(title, fontSize=16, anchor="start", offset=12),
-            height=400,
-            padding={"left": 8, "right": 16, "top": 8, "bottom": 8},
-            autosize=alt.AutoSizeParams(type="fit-x", contains="padding"),
-        )
-        .configure_axis(labelLimit=0, titlePadding=8)
-        .interactive()
-    )
+    return chart.properties(
+        title=alt.TitleParams(title, fontSize=16, anchor="start", offset=12),
+        height=400,
+        padding={"left": 8, "right": 16, "top": 8, "bottom": 8},
+        autosize=alt.AutoSizeParams(type="fit-x", contains="padding"),
+    ).configure_axis(labelLimit=0, titlePadding=8)
 
 
 def attempt_vs_summit(df: pd.DataFrame) -> alt.LayerChart:
@@ -218,7 +214,7 @@ def _series_chart(
         alt.Tooltip("summits:Q", title="Summits", format=","),
         alt.Tooltip("deaths:Q", title="Deaths", format=","),
         alt.Tooltip("pct_summited:Q", title="Summited %", format=".1f"),
-        alt.Tooltip("deaths_per_1000:Q", title="Deaths / 1000", format=".2f"),
+        alt.Tooltip("pct_died:Q", title="Died %", format=".2f"),
     ]
     base = alt.Chart(df).encode(
         x=alt.X("period:Q", title="Year", axis=alt.Axis(format="d"), scale=alt.Scale(nice=False)),
@@ -339,7 +335,7 @@ with st.sidebar:
 
     st.divider()
     st.caption(
-        "Deaths are shown per 1,000 climber-records. Charts labelled just "
+        "Death rates are percentages of that group's climbers. Charts labelled just "
         '"climbers" exclude hired staff; the two groups do different jobs at different risk.'
     )
     with st.expander("Where the numbers come from"):
@@ -386,8 +382,7 @@ with cols[2]:
     st.metric(
         "Died",
         f"{100.0 * total_deaths / total_climbers:.2f}%" if total_climbers else "-",
-        help=f"{total_deaths:,} deaths, or "
-        f"{1000.0 * total_deaths / total_climbers:.2f} per 1,000 climbers."
+        help=f"{total_deaths:,} deaths, or {total_deaths:,} of {total_climbers:,} climber records."
         if total_climbers
         else None,
     )
@@ -450,7 +445,7 @@ with tabs[0]:
                     "summits",
                     "deaths",
                     alt.Tooltip("pct_summited:Q", format=".1f", title="Summited %"),
-                    alt.Tooltip("deaths_per_1000:Q", format=".2f", title="Deaths / 1000"),
+                    alt.Tooltip("pct_died:Q", format=".2f", title="Deaths / 1000"),
                 ],
             )
             .properties(height=360),
@@ -483,37 +478,45 @@ with tabs[0]:
             "line here: at four times the busiest peak it flattened everything else."
         )
 
+        as_count = (
+            st.segmented_control(
+                "Show rates as",
+                options=["Percentage", "Count"],
+                default="Percentage",
+                key="overview_outcome_mode",
+            )
+            or "Percentage"
+        ) == "Count"
+        summit_field = "summits" if as_count else "pct_summited"
+        died_field = "deaths" if as_count else "pct_died"
         st.altair_chart(
             peak_lines(
                 series,
-                "pct_summited",
-                "Summit rate",
-                "% summiting",
-                size_by_denominator=True,
+                summit_field,
+                "Climbers summiting" if as_count else "Summit rate",
+                "Climbers" if as_count else "% summiting",
+                size_by_denominator=not as_count,
             ),
             width="stretch",
         )
         st.altair_chart(
             peak_lines(
                 series,
-                "deaths_per_1000",
-                "Death rate",
-                "Deaths per 1,000",
-                size_by_denominator=True,
+                died_field,
+                "Deaths" if as_count else "Death rate",
+                "Deaths" if as_count else "Deaths (%)",
+                size_by_denominator=not as_count,
             ),
             width="stretch",
         )
-        st.caption(
-            "Point size is the denominator: a small dot is a rate built on a handful of "
-            "people, so an early-era spike is visibly thin rather than hidden. Success "
-            "counts every upstream success type: main peak, subpeak/foresummit and claimed."
-        )
-        st.caption(
-            "**Three years are events, not noise.** On Everest: 403 climbers and only 54 "
-            "summits in 2014 (Khumbu icefall disaster and the strike that followed), 519 "
-            "climbers and 0 summits in 2015 (April earthquake), 32 climbers in 2020 (season "
-            "cancelled). Compare climbers rather than expeditions across eras — party "
-            "size moved, so expedition counts are not comparable."
+        st.success(
+            "**Climbing the 8000ers got far more successful and far less deadly at the "
+            "same time.** For climbers excluding hired staff, the summit rate went from "
+            "5% in the 1970s to 52% in the 2020s — a tenfold rise — while the share who "
+            "died fell from 4.2% to 0.8%. Oxygen, weather forecasting, fixed ropes and "
+            "far more hired support all arrived together, so the charts cannot separate "
+            "their effects, but the direction is unambiguous.",
+            icon="📈",
         )
 
 
@@ -529,7 +532,7 @@ with tabs[1]:
         # Rates ARE the honest default here, unlike the per-peak charts. These
         # three populations differ by 17x in size -- 41,788 members against
         # 2,424 non-Sherpa hired -- so counts invert the finding: members have
-        # the most deaths (557) and the LOWEST rate (13.3 per 1,000).
+        # the most deaths (557) and the LOWEST rate (1.33%).
         worker_rate = (
             st.segmented_control(
                 "Show", options=["Rate", "Count"], default="Rate", key="worker_mode"
@@ -538,7 +541,7 @@ with tabs[1]:
         ) == "Rate"
         worker_shown = worker
         summit_f = "pct_summited" if worker_rate else "summits"
-        death_f = "deaths_per_1000" if worker_rate else "deaths"
+        death_f = "pct_died" if worker_rate else "deaths"
         st.altair_chart(
             category_lines(
                 worker_shown,
@@ -558,7 +561,7 @@ with tabs[1]:
                 death_f,
                 WORKER_COLOURS,
                 "Death rate" if worker_rate else "Deaths",
-                "Deaths per 1,000" if worker_rate else "Deaths",
+                "Deaths (%)" if worker_rate else "Deaths",
                 size_by_denominator=worker_rate,
             ),
             width="stretch",
@@ -566,7 +569,7 @@ with tabs[1]:
         st.caption(
             "Rates, because these populations differ in size by 17x: members "
             "have the most deaths in raw count (557) and the lowest rate "
-            "(13.3 per 1,000). Counts here would say the opposite of the truth."
+            "(1.33%). Counts here would say the opposite of the truth."
             if worker_rate
             else "Raw counts. Remember members outnumber hired workers nearly 3:1 "
             "(41,788 to 15,590), so more member deaths does not mean more risk per person."
@@ -682,10 +685,10 @@ with tabs[2]:
             category_lines(
                 support_shown,
                 "support_level",
-                "deaths_per_1000" if support_rate else "deaths",
+                "pct_died" if support_rate else "deaths",
                 SUPPORT_COLOURS,
                 "Death rate" if support_rate else "Deaths",
-                "Deaths per 1,000" if support_rate else "Deaths",
+                "Deaths (%)" if support_rate else "Deaths",
                 size_by_denominator=support_rate,
             ),
             width="stretch",
@@ -708,7 +711,7 @@ with tabs[2]:
             width="stretch",
             column_config={
                 "Summited %": st.column_config.NumberColumn(format="%.1f%%"),
-                "Deaths / 1000": st.column_config.NumberColumn(format="%.2f"),
+                "Died %": st.column_config.NumberColumn(format="%.2f%%"),
             },
         )
         st.warning(
@@ -776,14 +779,14 @@ with tabs[3]:
             category_lines(
                 ox_time,
                 "oxygen",
-                "deaths_per_1000",
+                "pct_died",
                 {
                     "Used oxygen": "#2f7ab5",
                     "Climbed without": "#c2622d",
                     "Not recorded": "#bab0ac",
                 },
                 "Death rate by oxygen status",
-                "Deaths per 1,000",
+                "Deaths (%)",
                 size_by_denominator=True,
             ),
             width="stretch",
@@ -813,7 +816,7 @@ with tabs[3]:
                             alt.Tooltip("oxygen:N", title="Oxygen"),
                             alt.Tooltip("climbers:Q", title="Climbers", format=","),
                             alt.Tooltip("pct_summited:Q", title="Summited %", format=".1f"),
-                            alt.Tooltip("deaths_per_1000:Q", title="Deaths / 1000", format=".2f"),
+                            alt.Tooltip("pct_died:Q", title="Died %", format=".2f"),
                         ],
                     )
                 ),
@@ -829,7 +832,7 @@ with tabs[3]:
                 "summits": "Summits",
                 "pct_summited": "Summited %",
                 "deaths": "Deaths",
-                "deaths_per_1000": "Deaths / 1000",
+                "pct_died": "Died %",
             }
         ).sort_values(["Worker class", "Oxygen"])
         st.dataframe(
@@ -838,7 +841,7 @@ with tabs[3]:
             width="stretch",
             column_config={
                 "Summited %": st.column_config.NumberColumn(format="%.1f%%"),
-                "Deaths / 1000": st.column_config.NumberColumn(format="%.2f"),
+                "Died %": st.column_config.NumberColumn(format="%.2f%%"),
             },
         )
         st.caption(
@@ -943,8 +946,7 @@ with tabs[4]:
                 ),
                 tooltip=tooltip,
             )
-            .properties(height=420)
-            .interactive(),
+            .properties(height=420),
             width="stretch",
         )
         st.altair_chart(
