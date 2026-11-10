@@ -252,6 +252,57 @@ def hired_growth(
 
 
 @st.cache_data(show_spinner=False)
+def support_mix(years: tuple[int, int], seasons: list[str], peaks: list[str]) -> pd.DataFrame:
+    """Share of climbers by support level, with each level's outcomes.
+
+    Members only. Hired staff are the support being measured, so counting them
+    here would put the support inside its own denominator.
+
+    "Not recorded" is kept as its own slice rather than folded into either
+    side: 814 climber-records have no hired count upstream, and guessing which
+    way they went would move both rates.
+    """
+    where, params = _filters(peaks, years, seasons)
+    return _query(
+        f"""SELECT support_level,
+                   count(*) AS climbers,
+                   count(DISTINCT expedition_id_year) AS expeditions,
+                   sum(summited::INT) AS summits,
+                   sum(died::INT) AS deaths,
+                   100.0 * count(*) / sum(count(*)) OVER () AS pct_climbers,
+                   100.0 * sum(summited::INT) / count(*) AS pct_summited,
+                   100.0 * sum(died::INT) / count(*) AS pct_died
+            FROM read_parquet('{gold_path(CLIMB)}')
+            WHERE {where} AND NOT is_hired
+            GROUP BY 1 ORDER BY 2 DESC""",
+        params,
+    )
+
+
+@st.cache_data(show_spinner=False)
+def support_mix_over_time(
+    years: tuple[int, int], seasons: list[str], peaks: list[str]
+) -> pd.DataFrame:
+    """The same split per decade, as a share of that decade's climbers.
+
+    Decade grain, not yearly: the single climber recorded in 1913 would read as
+    "100% unsupported" on a yearly line and swamp the trend it belongs to.
+    """
+    where, params = _filters(peaks, years, seasons)
+    return _query(
+        f"""SELECT ((year / 10)::INT * 10) AS decade, support_level,
+                   count(*) AS climbers,
+                   100.0 * count(*)
+                       / sum(count(*)) OVER (PARTITION BY ((year / 10)::INT * 10))
+                       AS pct_climbers
+            FROM read_parquet('{gold_path(CLIMB)}')
+            WHERE {where} AND NOT is_hired
+            GROUP BY 1, 2 ORDER BY 1, 2""",
+        params,
+    )
+
+
+@st.cache_data(show_spinner=False)
 def support_outcomes(
     years: tuple[int, int], seasons: list[str], peaks: list[str], granularity: str
 ) -> pd.DataFrame:
@@ -391,4 +442,43 @@ def oxygen_by_worker(years: tuple[int, int], seasons: list[str], peaks: list[str
             FROM read_parquet('{gold_path(CLIMB)}')
             WHERE {where} GROUP BY 1, 2""",
         params,
+    )
+
+
+@st.cache_data(show_spinner=False)
+def hired_recording_coverage(
+    years: tuple[int, int], seasons: list[str], peaks: list[str]
+) -> pd.DataFrame:
+    """How many hired staff were counted, against how many were named.
+
+    Two upstream facts disagree on purpose. TOTHIRED is the expedition's own
+    count of hired personnel above base camp; an is_hired climber record is a
+    named individual. In the 1960s there are twelve counted for every one
+    named -- a hired worker of that era usually appears only as a tally, while
+    every member got a name, a nationality, an age and an occupation.
+
+    Decade grain: this is a story about eras, and yearly ratios on a handful of
+    expeditions are noise.
+    """
+    where, params = _filters(peaks, years, seasons)
+    return _query(
+        f"""WITH per_exp AS (
+                SELECT DISTINCT expedition_id_year, year, expedition_hired
+                FROM read_parquet('{gold_path(CLIMB)}')
+                WHERE {where} AND expedition_hired IS NOT NULL
+            ),
+            named AS (
+                SELECT expedition_id_year, count(*) AS named
+                FROM read_parquet('{gold_path(CLIMB)}')
+                WHERE {where} AND is_hired
+                GROUP BY 1
+            )
+            SELECT (p.year / 10)::INT * 10 AS decade,
+                   sum(p.expedition_hired) AS counted,
+                   sum(coalesce(n.named, 0)) AS named,
+                   100.0 * sum(coalesce(n.named, 0))
+                       / nullif(sum(p.expedition_hired), 0) AS pct_named
+            FROM per_exp p LEFT JOIN named n USING (expedition_id_year)
+            GROUP BY 1 ORDER BY 1""",
+        [*params, *params],
     )

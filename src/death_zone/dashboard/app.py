@@ -59,6 +59,8 @@ WORKER_COLOURS = {
     "Hired (other)": "#8c3f6d",
 }
 SUPPORT_COLOURS = {"Supported": "#2f7ab5", "Unsupported": "#b3303c"}
+# The mix charts carry a third slice; the line charts deliberately do not.
+SUPPORT_MIX_COLOURS = {**SUPPORT_COLOURS, "Not recorded": "#79706e"}
 
 # How many peak lines to draw when no peak is picked, and the time bucket.
 # Both were sidebar controls; fixing them removes two decisions nobody needs
@@ -524,6 +526,51 @@ with tabs[0]:
 # Hired workers
 # --------------------------------------------------------------------------- #
 with tabs[1]:
+    st.markdown(
+        "**Who counts as what.** A *member* is a climber the expedition lists as one of "
+        "its own — the people who paid for or organised the trip and climb under their "
+        "own name. *Hired* means someone the expedition employed to work on the mountain: "
+        "the high-altitude workers, Sherpa and not, who carry loads, fix rope and break "
+        "trail. The two are counted separately on every chart here and never pooled."
+    )
+
+    st.subheader("Counted, but not named")
+    cov = Q.hired_recording_coverage(years, seasons, picked_peaks)
+    if not cov.empty:
+        st.altair_chart(
+            _sized(
+                alt.layer(
+                    alt.Chart(cov)
+                    .mark_bar(color="#c2622d", opacity=0.85)
+                    .encode(
+                        x=alt.X("decade:O", title="Decade"),
+                        y=alt.Y(
+                            "pct_named:Q",
+                            title="% of hired staff named",
+                            scale=alt.Scale(domain=[0, 100]),
+                        ),
+                        tooltip=[
+                            alt.Tooltip("decade:O", title="Decade"),
+                            alt.Tooltip("counted:Q", title="Counted above BC", format=","),
+                            alt.Tooltip("named:Q", title="Named as individuals", format=","),
+                            alt.Tooltip("pct_named:Q", title="% named", format=".1f"),
+                        ],
+                    )
+                ),
+                "Share of hired staff recorded as named individuals",
+            ),
+            width="stretch",
+        )
+        st.info(
+            "**The database counts hired staff separately from naming them.** Every "
+            "expedition reports how many hired workers went above base camp; far fewer "
+            "of those people got an individual record with a name, age and nationality. "
+            "In the 1960s and 70s that was **about one in ten**. Every member, in every "
+            "era, was named. The gap closes from 2000 onwards — so the record of *who* "
+            "these people were effectively begins then.",
+            icon="📇",
+        )
+
     st.subheader("Hired staff against members")
     worker = Q.worker_over_time(years, seasons, picked_peaks, GRANULARITY)
     if worker.empty:
@@ -573,6 +620,23 @@ with tabs[1]:
             if worker_rate
             else "Raw counts. Remember members outnumber hired workers nearly 3:1 "
             "(41,788 to 15,590), so more member deaths does not mean more risk per person."
+        )
+        # 1970s figures quoted below, on the default filter: hired deaths over
+        # named hired records give 37%; the same deaths over sum(expedition_hired)
+        # give 3.14%, against 4.22% for members over named member records.
+        st.warning(
+            "**Before 2000, read the hired lines as a recording artefact, not as risk.** "
+            "These rates divide deaths by *named* hired records — and as the first chart on "
+            "this tab shows, only about one in ten hired workers of that era got a named "
+            "record at all. A hired worker was often entered in the database precisely "
+            "because something happened to them, so the survivors are missing from the "
+            "denominator. That turns the 1970s into a 37% hired "
+            '"death rate". Divide the same deaths by what the expeditions themselves '
+            "reported — their own head-count of hired staff above base camp — and the "
+            "decade comes out at **3.1%**, slightly *below* the 4.2% member rate. Named "
+            "records are still the only way to separate Sherpa from non-Sherpa, which is "
+            "why this chart keeps them.",
+            icon="⚠",
         )
         st.info(
             "**Hired and Sherpa are separate axes, not a hierarchy.** On the 8000 m peaks "
@@ -655,6 +719,130 @@ with tabs[1]:
 # With vs without help
 # --------------------------------------------------------------------------- #
 with tabs[2]:
+    st.subheader("How many climb with nobody hired")
+    mix = Q.support_mix(years, seasons, picked_peaks)
+    if not mix.empty:
+        order = [k for k in SUPPORT_MIX_COLOURS if k in set(mix["support_level"])]
+        scale = alt.Scale(domain=order, range=[SUPPORT_MIX_COLOURS[k] for k in order])
+        unsupported = mix[mix["support_level"] == "Unsupported"]
+
+        share, outcomes = st.columns([1, 1.2])
+        with share:
+            if not unsupported.empty:
+                row = unsupported.iloc[0]
+                st.metric(
+                    "Climbers with nobody hired above base camp",
+                    f"{row['pct_climbers']:.1f}%",
+                    f"{int(row['climbers']):,} of "
+                    f"{int(mix['climbers'].sum()):,} — {int(row['expeditions']):,} parties",
+                    delta_color="off",
+                )
+            st.altair_chart(
+                alt.Chart(mix)
+                .mark_arc(innerRadius=60, outerRadius=115, stroke="white", strokeWidth=2)
+                .encode(
+                    theta=alt.Theta("climbers:Q", stack=True),
+                    color=alt.Color(
+                        "support_level:N",
+                        scale=scale,
+                        legend=alt.Legend(title=None, orient="bottom"),
+                    ),
+                    order=alt.Order("climbers:Q", sort="descending"),
+                    tooltip=[
+                        alt.Tooltip("support_level:N", title="Support"),
+                        alt.Tooltip("climbers:Q", title="Climbers", format=","),
+                        alt.Tooltip("pct_climbers:Q", title="Share", format=".1f"),
+                        alt.Tooltip("expeditions:Q", title="Expeditions", format=","),
+                    ],
+                )
+                .properties(
+                    height=300,
+                    title=alt.TitleParams(
+                        "Share of climbers by support level",
+                        fontSize=16,
+                        anchor="start",
+                        offset=12,
+                    ),
+                ),
+                width="stretch",
+            )
+        with outcomes:
+            # Two measures an order of magnitude apart -- 38% summiting against
+            # 1.2% dying -- so they get a facet each with its own y scale.
+            # Sharing one axis would flatten the death bars onto the baseline.
+            long = mix.melt(
+                id_vars=["support_level", "climbers"],
+                value_vars=["pct_summited", "pct_died"],
+                var_name="measure",
+                value_name="pct",
+            ).replace({"measure": {"pct_summited": "Summited", "pct_died": "Died"}})
+            st.altair_chart(
+                alt.Chart(long)
+                .mark_bar()
+                .encode(
+                    x=alt.X("support_level:N", title=None, axis=alt.Axis(labelAngle=-25)),
+                    y=alt.Y("pct:Q", title="% of that group's climbers"),
+                    color=alt.Color("support_level:N", scale=scale, legend=None),
+                    tooltip=[
+                        alt.Tooltip("support_level:N", title="Support"),
+                        alt.Tooltip("measure:N", title="Outcome"),
+                        alt.Tooltip("pct:Q", title="%", format=".2f"),
+                        alt.Tooltip("climbers:Q", title="Climbers", format=","),
+                    ],
+                )
+                .properties(height=300, width=160)
+                .facet(column=alt.Column("measure:N", title=None, sort=["Summited", "Died"]))
+                .resolve_scale(y="independent")
+                .properties(
+                    title=alt.TitleParams(
+                        "Outcomes, with and without paid help",
+                        fontSize=16,
+                        anchor="start",
+                        offset=12,
+                    )
+                ),
+                width="stretch",
+            )
+
+        mix_time = Q.support_mix_over_time(years, seasons, picked_peaks)
+        if not mix_time.empty:
+            st.altair_chart(
+                _sized(
+                    alt.layer(
+                        alt.Chart(mix_time)
+                        .mark_bar()
+                        .encode(
+                            x=alt.X("decade:O", title="Decade"),
+                            y=alt.Y(
+                                "pct_climbers:Q",
+                                title="% of that decade's climbers",
+                                stack="normalize",
+                            ),
+                            color=alt.Color("support_level:N", scale=scale, legend=None),
+                            order=alt.Order("support_level:N"),
+                            tooltip=[
+                                alt.Tooltip("decade:O", title="Decade"),
+                                alt.Tooltip("support_level:N", title="Support"),
+                                alt.Tooltip("climbers:Q", title="Climbers", format=","),
+                                alt.Tooltip("pct_climbers:Q", title="Share", format=".1f"),
+                            ],
+                        )
+                    ),
+                    "The unsupported share, decade by decade",
+                ),
+                width="stretch",
+            )
+            st.info(
+                "**Climbing an 8000er without paid help is close to extinct.** Unsupported "
+                "climbers were 28% of everyone on these peaks in the 1990s and are 4.5% in "
+                "the 2020s — and they summit at 24% against 38% for supported parties while "
+                "dying at 2.0% against 1.2%. Read that as two populations, not one causal "
+                "effect: the people who hire nobody are disproportionately on hard new "
+                "routes, in small teams, without bottled oxygen.",
+                icon="📉",
+            )
+
+    st.divider()
     st.subheader("Climbing with and without paid help on the mountain")
     support = Q.support_outcomes(years, seasons, picked_peaks, GRANULARITY)
     if support.empty:
@@ -697,7 +885,7 @@ with tabs[2]:
             support.groupby("support_level")[["climbers", "summits", "deaths"]].sum().reset_index()
         )
         totals["Summited %"] = 100.0 * totals["summits"] / totals["climbers"]
-        totals["Deaths / 1000"] = 1000.0 * totals["deaths"] / totals["climbers"]
+        totals["Died %"] = 100.0 * totals["deaths"] / totals["climbers"]
         st.dataframe(
             totals.rename(
                 columns={
